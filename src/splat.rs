@@ -936,8 +936,8 @@ pub(crate) fn splat(
                                         // but is linked by a name that neither
                                         // lower nor upper casing can produce, eg
                                         // `WdfLdr.lib`
-                                        if let Some(canonical) = canonical_lib_names
-                                            .get(&fname_str.to_ascii_lowercase())
+                                        if let Some(canonical) =
+                                            canonical_lib_names.get(&fname_str.to_ascii_lowercase())
                                             && canonical != fname_str
                                         {
                                             tar.pop();
@@ -1181,15 +1181,11 @@ fn fixup_include_casing(
     let mut namespaces: Vec<(&Path, FileMap<'_>)> = Vec::new();
 
     for hdrs in kit_headers {
-        let files = match namespaces
-            .iter_mut()
-            .position(|(root, _)| *root == hdrs.root)
-        {
-            Some(ind) => &mut namespaces[ind].1,
-            None => {
-                namespaces.push((&hdrs.root, Default::default()));
-                &mut namespaces.last_mut().unwrap().1
-            }
+        let files = if let Some(ind) = namespaces.iter().position(|(root, _)| *root == hdrs.root) {
+            &mut namespaces[ind].1
+        } else {
+            namespaces.push((&hdrs.root, Default::default()));
+            &mut namespaces.last_mut().unwrap().1
         };
 
         for (k, v) in &hdrs.inner {
@@ -1247,7 +1243,9 @@ fn fixup_include_casing(
     let pb = indicatif::ProgressBar::with_draw_target(Some(num_files), ctx.draw_target.into())
         .with_style(
             indicatif::ProgressStyle::default_bar()
-                .template("{spinner:.green} {prefix:.bold} [{elapsed}] {wide_bar:.green} {pos}/{len}")?
+                .template(
+                    "{spinner:.green} {prefix:.bold} [{elapsed}] {wide_bar:.green} {pos}/{len}",
+                )?
                 .progress_chars("█▇▆▅▄▃▂▁  "),
         );
 
@@ -1290,8 +1288,8 @@ fn fixup_include_casing(
         for (path, _) in &tree.files {
             // Of course, there are files with non-utf8 encoding :p
             let path = root.join(path);
-            let contents = std::fs::read(&path)
-                .with_context(|| format!("unable to read {label} {path}"))?;
+            let contents =
+                std::fs::read(&path).with_context(|| format!("unable to read {label} {path}"))?;
 
             for caps in regex.captures_iter(&contents) {
                 let rel_path = std::str::from_utf8(&caps[1]).with_context(|| {

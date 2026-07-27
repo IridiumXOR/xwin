@@ -240,6 +240,9 @@ pub struct Args {
     ///
     /// Note the WDK is acquired from nuget rather than the VS manifest, and is
     /// only published for x86_64 and aarch64.
+    // This is help text rather than rustdoc, so the architectures are spelled the
+    // way they are passed to --arch, without the backticks doc_markdown wants
+    #[allow(clippy::doc_markdown)]
     #[arg(long)]
     include_wdk: bool,
     /// If specified, this is the version of the WDK that the user wishes to use

@@ -56,7 +56,7 @@ fn package_id(arch: Arch) -> Option<&'static str> {
 /// The first of the requested architectures the WDK is actually published for
 fn primary_id(arches: u32) -> Result<&'static str, Error> {
     Arch::iter(arches)
-        .filter_map(|arch| {
+        .find_map(|arch| {
             let id = package_id(arch);
 
             if id.is_none() {
@@ -67,7 +67,6 @@ fn primary_id(arches: u32) -> Result<&'static str, Error> {
 
             id
         })
-        .next()
         .context("unable to acquire the WDK for any of the requested architectures")
 }
 
@@ -125,7 +124,7 @@ fn resolve_version(
         .with_context(|| format!("invalid WDK version '{user}' specified"))?;
 
     anyhow::ensure!(
-        available.iter().any(|v| *v == user),
+        available.contains(&user),
         "WDK version '{user}' does not exist on nuget"
     );
 
@@ -242,8 +241,7 @@ fn get_package_hash(ctx: &Ctx, id: &str, version: &str) -> Result<(Sha512, u64),
         package_size: u64,
     }
 
-    let registration: Registration =
-        get_json(ctx, &format!("{REGISTRATION}/{id}/{version}.json"))?;
+    let registration: Registration = get_json(ctx, &format!("{REGISTRATION}/{id}/{version}.json"))?;
     let entry: CatalogEntry = get_json(ctx, &registration.catalog_entry)?;
 
     anyhow::ensure!(

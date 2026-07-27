@@ -359,54 +359,56 @@ impl Ctx {
 
         payloads
             .into_par_iter()
-            .map(|wi| -> Result<(crate::PayloadKind, Vec<SdkHeaders>), Error> {
-                let kind = wi.payload.kind;
+            .map(
+                |wi| -> Result<(crate::PayloadKind, Vec<SdkHeaders>), Error> {
+                    let kind = wi.payload.kind;
 
-                let payload_contents =
-                    crate::download::download(self.clone(), packages.clone(), &wi)?;
+                    let payload_contents =
+                        crate::download::download(self.clone(), packages.clone(), &wi)?;
 
-                if let crate::Ops::Download = ops {
-                    return Ok((kind, Vec::new()));
-                }
+                    if let crate::Ops::Download = ops {
+                        return Ok((kind, Vec::new()));
+                    }
 
-                let Some(payload_contents) = payload_contents else {
-                    wi.progress.abandon_with_message("MSI with no cabs");
-                    return Ok((kind, Vec::new()));
-                };
+                    let Some(payload_contents) = payload_contents else {
+                        wi.progress.abandon_with_message("MSI with no cabs");
+                        return Ok((kind, Vec::new()));
+                    };
 
-                let ft = crate::unpack::unpack(self.clone(), &wi, payload_contents)?;
+                    let ft = crate::unpack::unpack(self.clone(), &wi, payload_contents)?;
 
-                if let crate::Ops::Unpack = ops {
-                    return Ok((kind, Vec::new()));
-                }
+                    if let crate::Ops::Unpack = ops {
+                        return Ok((kind, Vec::new()));
+                    }
 
-                let headers = if let Some((splat_roots, config)) = &splat_config {
-                    crate::splat::splat(
-                        config,
-                        splat_roots,
-                        &wi,
-                        &ft,
-                        map.as_ref()
-                            .filter(|_m| !matches!(ops, crate::Ops::Minimize(_))),
-                        &sdk_version,
-                        vcrd_version.clone(),
-                        &wdf_versions,
-                        arches,
-                        variants,
-                    )
-                    .with_context(|| format!("failed to splat {}", wi.payload.filename))?
-                } else {
-                    Vec::new()
-                };
+                    let headers = if let Some((splat_roots, config)) = &splat_config {
+                        crate::splat::splat(
+                            config,
+                            splat_roots,
+                            &wi,
+                            &ft,
+                            map.as_ref()
+                                .filter(|_m| !matches!(ops, crate::Ops::Minimize(_))),
+                            &sdk_version,
+                            vcrd_version.clone(),
+                            &wdf_versions,
+                            arches,
+                            variants,
+                        )
+                        .with_context(|| format!("failed to splat {}", wi.payload.filename))?
+                    } else {
+                        Vec::new()
+                    };
 
-                match kind {
-                    crate::PayloadKind::CrtHeaders => *crt_ft.lock() = Some(ft),
-                    crate::PayloadKind::AtlHeaders => *atl_ft.lock() = Some(ft),
-                    _ => {}
-                }
+                    match kind {
+                        crate::PayloadKind::CrtHeaders => *crt_ft.lock() = Some(ft),
+                        crate::PayloadKind::AtlHeaders => *atl_ft.lock() = Some(ft),
+                        _ => {}
+                    }
 
-                Ok((kind, headers))
-            })
+                    Ok((kind, headers))
+                },
+            )
             .collect_into_vec(&mut results);
 
         // The SDK and WDK headers are fixed up in separate namespaces, as the two

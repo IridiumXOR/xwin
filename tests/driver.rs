@@ -166,7 +166,10 @@ fn verify_driver_compiles() {
     cc.arg(format!("/Fo{obj}"))
         .arg("tests/xwin-driver-test/driver.c");
 
-    assert!(cc.status().unwrap().success(), "failed to compile the driver");
+    assert!(
+        cc.status().unwrap().success(),
+        "failed to compile the driver"
+    );
 
     let sys = build_dir.join("xwin-driver-test.sys");
 
@@ -181,22 +184,25 @@ fn verify_driver_compiles() {
         "/ENTRY:FxDriverEntry",
         "/NODEFAULTLIB",
     ])
-        .arg(format!("/OUT:{sys}"))
-        .arg(format!("/LIBPATH:{od}/wdk/lib/km/x86_64"))
-        .arg(format!(
-            "/LIBPATH:{od}/wdk/lib/wdf/kmdf/x86_64/{KMDF_VERSION}"
-        ))
-        .arg(obj)
-        .args([
-            "ntoskrnl.lib",
-            "hal.lib",
-            "wmilib.lib",
-            "BufferOverflowFastFailK.lib",
-            "WdfLdr.lib",
-            "WdfDriverEntry.lib",
-        ]);
+    .arg(format!("/OUT:{sys}"))
+    .arg(format!("/LIBPATH:{od}/wdk/lib/km/x86_64"))
+    .arg(format!(
+        "/LIBPATH:{od}/wdk/lib/wdf/kmdf/x86_64/{KMDF_VERSION}"
+    ))
+    .arg(obj)
+    .args([
+        "ntoskrnl.lib",
+        "hal.lib",
+        "wmilib.lib",
+        "BufferOverflowFastFailK.lib",
+        "WdfLdr.lib",
+        "WdfDriverEntry.lib",
+    ]);
 
-    assert!(link.status().unwrap().success(), "failed to link the driver");
+    assert!(
+        link.status().unwrap().success(),
+        "failed to link the driver"
+    );
 
     // A native subsystem PE is the actual deliverable, so check we produced one
     let pe = std::fs::read(&sys).unwrap();
