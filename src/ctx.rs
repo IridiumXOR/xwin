@@ -1,7 +1,7 @@
 use crate::{
     Path, PathBuf, WorkItem,
     splat::SdkHeaders,
-    util::{ProgressTarget, Sha256},
+    util::{Checksum, ProgressTarget},
 };
 use anyhow::{Context as _, Error};
 
@@ -69,7 +69,7 @@ impl Ctx {
         &self,
         url: impl AsRef<str>,
         path: &P,
-        checksum: Option<Sha256>,
+        checksum: Option<Checksum>,
         mut progress: indicatif::ProgressBar,
     ) -> Result<bytes::Bytes, Error>
     where
@@ -89,7 +89,7 @@ impl Ctx {
             match std::fs::read(&cache_path) {
                 Ok(contents) => {
                     if let Some(expected) = &checksum {
-                        let chksum = Sha256::digest(&contents);
+                        let chksum = expected.digest_like(&contents);
 
                         if chksum != *expected {
                             tracing::warn!(
@@ -211,7 +211,7 @@ impl Ctx {
                     let body = body.freeze();
 
                     if let Some(expected) = checksum {
-                        let chksum = Sha256::digest(&body);
+                        let chksum = expected.digest_like(&body);
 
                         anyhow::ensure!(
                             chksum == expected,
@@ -263,6 +263,7 @@ impl Ctx {
         crt_version: String,
         sdk_version: String,
         vcrd_version: Option<String>,
+        wdf_versions: crate::splat::WdfVersions,
         arches: u32,
         variants: u32,
         ops: crate::Ops,
@@ -358,26 +359,28 @@ impl Ctx {
 
         payloads
             .into_par_iter()
-            .map(|wi| -> Result<Option<SdkHeaders>, Error> {
+            .map(|wi| -> Result<(crate::PayloadKind, Vec<SdkHeaders>), Error> {
+                let kind = wi.payload.kind;
+
                 let payload_contents =
                     crate::download::download(self.clone(), packages.clone(), &wi)?;
 
                 if let crate::Ops::Download = ops {
-                    return Ok(None);
+                    return Ok((kind, Vec::new()));
                 }
 
                 let Some(payload_contents) = payload_contents else {
                     wi.progress.abandon_with_message("MSI with no cabs");
-                    return Ok(None);
+                    return Ok((kind, Vec::new()));
                 };
 
                 let ft = crate::unpack::unpack(self.clone(), &wi, payload_contents)?;
 
                 if let crate::Ops::Unpack = ops {
-                    return Ok(None);
+                    return Ok((kind, Vec::new()));
                 }
 
-                let sdk_headers = if let Some((splat_roots, config)) = &splat_config {
+                let headers = if let Some((splat_roots, config)) = &splat_config {
                     crate::splat::splat(
                         config,
                         splat_roots,
@@ -387,26 +390,42 @@ impl Ctx {
                             .filter(|_m| !matches!(ops, crate::Ops::Minimize(_))),
                         &sdk_version,
                         vcrd_version.clone(),
+                        &wdf_versions,
                         arches,
                         variants,
                     )
                     .with_context(|| format!("failed to splat {}", wi.payload.filename))?
                 } else {
-                    None
+                    Vec::new()
                 };
 
-                match wi.payload.kind {
+                match kind {
                     crate::PayloadKind::CrtHeaders => *crt_ft.lock() = Some(ft),
                     crate::PayloadKind::AtlHeaders => *atl_ft.lock() = Some(ft),
                     _ => {}
                 }
 
-                Ok(sdk_headers)
+                Ok((kind, headers))
             })
             .collect_into_vec(&mut results);
 
-        let sdk_headers = results.into_iter().collect::<Result<Vec<_>, _>>()?;
-        let sdk_headers = sdk_headers.into_iter().flatten().collect();
+        // The SDK and WDK headers are fixed up in separate namespaces, as the two
+        // kits ship headers with the same names but different contents
+        let (wdk_headers, sdk_headers): (Vec<_>, Vec<_>) = results
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .partition(|(kind, _)| *kind == crate::PayloadKind::Wdk);
+
+        let collect = |headers: Vec<(crate::PayloadKind, Vec<SdkHeaders>)>| {
+            headers
+                .into_iter()
+                .flat_map(|(_, headers)| headers)
+                .collect::<Vec<_>>()
+        };
+
+        let sdk_headers = collect(sdk_headers);
+        let wdk_headers = collect(wdk_headers);
 
         let Some((roots, sc)) = splat_config else {
             return Ok(());
@@ -422,6 +441,7 @@ impl Ctx {
                     sc.use_winsysroot_style.then_some(&sdk_version),
                     &roots,
                     sdk_headers,
+                    wdk_headers,
                     crt_ft,
                     atl_ft,
                 )?;
@@ -487,7 +507,7 @@ impl Ctx {
 
         if let Ok(unpack) = std::fs::read(&unpack_dir)
             && let Ok(um) = serde_json::from_slice::<crate::unpack::UnpackMeta>(&unpack)
-            && payload.sha256 == um.sha256
+            && payload.checksum == um.checksum
         {
             tracing::debug!("already unpacked");
             unpack_dir.pop();
