@@ -66,6 +66,21 @@ fn add_lib_casing_symlinks(fname: &str, tar: &mut PathBuf) -> Result<(), Error> 
     Ok(())
 }
 
+/// Finds a subdirectory ignoring case, returning the name it actually has on disk
+///
+/// The WDK packages spell the same architecture directory `x64` in one and
+/// `ARM64` in the other, so the casing can't be assumed
+fn find_dir_ignoring_case<'ft>(
+    tree: &'ft crate::unpack::FileTree,
+    name: &str,
+) -> Option<&'ft Path> {
+    tree.dirs.iter().find_map(|(dir, _)| {
+        dir.as_str()
+            .eq_ignore_ascii_case(name)
+            .then(|| dir.as_path())
+    })
+}
+
 /// Determines which of the side by side WDF versions in `tree` to splat, either
 /// the one the user asked for, or the highest one available
 fn select_wdf_version(
@@ -670,11 +685,30 @@ pub(crate) fn splat(
                 }
             }
 
+            // The architecture directory is spelled `x64` in the x64 package but
+            // `ARM64` in the arm64 one, so it has to be looked up rather than
+            // assumed. The target always uses xwin's own notation
+            let push_wdk_arch = |src: &mut PathBuf, target: &mut PathBuf| -> Result<(), Error> {
+                let arch_dir = find_dir_ignoring_case(get_tree(src)?, target_arch.as_ms_str())
+                    .with_context(|| {
+                        format!("the WDK has no '{target_arch}' directory in '{src}'")
+                    })?;
+
+                src.push(arch_dir);
+                target.push(if config.preserve_ms_arch_notation {
+                    target_arch.as_ms_str()
+                } else {
+                    target_arch.as_str()
+                });
+
+                Ok(())
+            };
+
             for dir in ["km", "um"] {
                 let mut src = lib_root.join(dir);
                 let mut target = roots.wdk.join("lib").join(dir);
 
-                push_arch(&mut src, &mut target, target_arch);
+                push_wdk_arch(&mut src, &mut target)?;
 
                 let tree = get_tree(&src)?;
 
@@ -694,7 +728,7 @@ pub(crate) fn splat(
                 let mut versions = lib_root.join("wdf").join(framework);
                 let mut target = roots.wdk.join("lib/wdf").join(framework);
 
-                push_arch(&mut versions, &mut target, target_arch);
+                push_wdk_arch(&mut versions, &mut target)?;
 
                 let requested = wdf_versions.get(framework);
                 let version = select_wdf_version(get_tree(&versions)?, framework, requested)?;
@@ -1134,7 +1168,9 @@ pub(crate) fn finalize_splat(
         // target.push(sdk_version);
         // target.push("um/GL");
         // symlink("gl", &target)?;
-    } else {
+    } else if roots.sdk.join("include/um/gl").exists() {
+        // Guarded as the SDK headers aren't necessarily part of the same splat,
+        // eg when only acquiring the WDK
         symlink("gl", &roots.sdk.join("include/um/GL"))?;
     }
 
